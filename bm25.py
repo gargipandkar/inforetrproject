@@ -121,7 +121,7 @@ filename= doc1
 document frequency= { word1 : 1, word2 : 3, word3 : 4, word4 : 2}
 
 '''
-def _score(query, doc, avg_doc_len, inv_idx, filename, df, k1=1.5, b=0.75): 
+def _score(query, doc, avg_doc_len, inv_idx, filename, df, num_docs, k1=1.5, b=0.75): 
     score = 0.0
     tf = tf_(inv_idx, filename) 
     idf = idf_(df, num_docs)
@@ -141,10 +141,10 @@ def _score(query, doc, avg_doc_len, inv_idx, filename, df, k1=1.5, b=0.75):
 if __name__=="__main__":
     query = input("Type in some query:")
     query = preprocess(query)
+    print(f"Processed query: {query}")
     docs = []
     inv_idx = defaultdict(dict)
     filelist = os.listdir("./data/documents")
-    LIMIT = 50
     num_docs = 0
     for filename in filelist:
        
@@ -152,8 +152,9 @@ if __name__=="__main__":
             if filename[-4:] == "json":
                 num_docs += 1
                 tmp = json.load(f)['data'] 
-                docs.append(preprocess(" ".join(tmp.split()[:LIMIT])))
-                for term in preprocess(" ".join(tmp.split())).split()[:LIMIT]:
+                doc_terms = preprocess(tmp)
+                docs.append(doc_terms)
+                for term in doc_terms:
                     doc_id = filename[:-5]
                     inv_idx[term][doc_id] = inv_idx[term].get(doc_id,0) + 1
 
@@ -167,7 +168,7 @@ if __name__=="__main__":
     for filename in filelist:
         # print(i)
         if filename[-4:] == "json":
-            score = _score(query, docs[i], avg_doc_len, inv_idx, filename[:-5], df)
+            score = _score(query, docs[i], avg_doc_len, inv_idx, filename[:-5], df, num_docs)
             print(score, end=' ')
             if score>maxscore:
                 maxscore = score

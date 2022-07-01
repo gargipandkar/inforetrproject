@@ -10,5 +10,4 @@ def preprocess(text):
     filtered = [w.lower() for w in word_tokens if not w.lower() in stop_words and w.lower() not in punctuations]
     expanded_words = []
     for word in filtered: expanded_words.append(contractions.fix(word))
-    filtered = ' '.join(expanded_words)
-    return filtered
+    return expanded_words
