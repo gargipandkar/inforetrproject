@@ -37,11 +37,11 @@ inputs: {word1 : {doc1: 1 , doc2: 4 ...}, ... } and doc1
 output: { word1 : 1, word2 : 2, word3 : 1, word4 : 1}
 '''
 
-def tf_(inv_idx, filename):
+def tf_(inv_idx, doc_id):
     frequencies = {}
     for term in inv_idx:
-        if filename in inv_idx[term].keys():
-            frequencies[term] = inv_idx[term][filename]
+        if doc_id in inv_idx[term].keys():
+            frequencies[term] = inv_idx[term][doc_id]
     return frequencies
 
 '''
@@ -53,11 +53,11 @@ output: { word1 : 1, word2 : 2, word3 : 1, word4 : 1}
 '''
 
 
-def tf_(inv_idx, filename):
+def tf_(inv_idx, doc_id):
     frequencies = {}
     for term in inv_idx:
-        if filename in inv_idx[term].keys():
-            frequencies[term] = inv_idx[term][filename]
+        if doc_id in inv_idx[term].keys():
+            frequencies[term] = inv_idx[term][doc_id]
     return frequencies
 
 
@@ -143,9 +143,9 @@ inverted index= {word1 : {doc1: 1 , doc2: 4 ...}, ... }
 filename= doc1
 document frequency= { word1 : 1, word2 : 3, word3 : 4, word4 : 2}
 '''
-def _score(query, doc, avg_doc_len, inv_idx, filename, df, num_docs, k1=1.5, b=0.75):
+def _score(query, doc, avg_doc_len, inv_idx, doc_id, df, num_docs, k1=1.5, b=0.75):
     score = 0.0
-    tf = tf_(inv_idx, filename)
+    tf = tf_(inv_idx, doc_id)
     idf = idf_(df, num_docs)
     doc_len = len(doc)
     for term in query:
@@ -161,24 +161,21 @@ def _score(query, doc, avg_doc_len, inv_idx, filename, df, num_docs, k1=1.5, b=0
     return score
 
 if __name__ == "__main__":
-    docs = []
+    doc_collection = pd.read_csv('./data/documents.csv')
+    num_docs = len(doc_collection)
+        
+    docs_tokenized = []
     inv_idx = defaultdict(dict)
-    filelist = os.listdir("./data/documents")
-    num_docs = 0
-    for filename in filelist:
-       
-        with open("./data/documents/"+filename, "r", encoding="utf-8") as f:
-            if filename[-4:] == "json":
-                num_docs += 1
-                tmp = json.load(f)['data']
-                doc_terms = preprocess_text(tmp)
-                docs.append(doc_terms)
-                for term in doc_terms:
-                    doc_id = filename[:-5]
-                    inv_idx[term][doc_id] = inv_idx[term].get(doc_id, 0) + 1
+    
+    for id, row in doc_collection.iterrows():
+        doc_data = row['data']
+        doc_terms = preprocess_text(doc_data)
+        docs_tokenized.append(doc_terms)
+        for term in doc_terms:
+            inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
 
     df = df_(inv_idx)
-    avg_doc_len = sum([len(d) for d in docs])/num_docs
+    avg_doc_len = sum([len(d) for d in docs_tokenized])/num_docs
     
     eval = pd.read_csv('./data/evaluation.csv')
     eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
@@ -194,15 +191,14 @@ if __name__ == "__main__":
         doc_scores = {}
         i = 0
         start = time.time()
-        for filename in filelist:
-            if filename[-4:] == "json":
-                score = _score(query, docs[i], avg_doc_len,
-                            inv_idx, filename[:-5], df, num_docs)
-                doc_scores[filename] = score
-                if score > maxscore:
-                    maxscore = score
-                    result = i
-                i += 1
+        for id in doc_collection.index:
+            score = _score(query, docs_tokenized[id], avg_doc_len,
+                        inv_idx, id, df, num_docs)
+            doc_scores[id] = score
+            if score > maxscore:
+                maxscore = score
+                result = i
+            i += 1
 
         ranking = sorted(doc_scores.items(),
                     key=lambda item: item[1], reverse=True)
@@ -211,7 +207,7 @@ if __name__ == "__main__":
         except ValueError:
             stop_idx = len(ranking)
         stop_idx = min(stop_idx, 3)
-        retr = [item[0].split('.')[0] for item in ranking[:stop_idx]]
+        retr = [doc_collection.iloc[item[0]]['filename'] for item in ranking[:stop_idx]]
         end = time.time()
         times.append(end-start)
         print(f"Time taken = {end-start}s")
@@ -220,13 +216,12 @@ if __name__ == "__main__":
         print("Relevance: ", r)
         print(f"Avg. precision = {average_precision(r)}, reciprocal rank = {reciprocal_rank(r)}")
         rs.append(r)
-        print(f"\nDocument {filelist[result]}")
+        top_doc = doc_collection.iloc[result]
+        print(f"\nDocument {top_doc['filename']}")
         
-        # get answer
-        with open("./data/documents/"+filelist[result], "r", encoding="utf-8") as f:
-            tmp = json.load(f)['data']
+        # get answer 
         qa = {'question': q,
-              'context': tmp
+              'context': top_doc['data']
               }
         start = time.time()
         ans = qa_pipeline(qa)

@@ -14,6 +14,7 @@ def preprocess_word(word):
     return word
 
 def preprocess_text(text):
+    text = text.replace('—', ' ')
     word_tokens = word_tokenize(text)
     filtered = [preprocess_word(w) for w in word_tokens if w.lower() not in stop_words and w not in punctuations]
     return filtered
