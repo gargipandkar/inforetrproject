@@ -12,10 +12,13 @@ from metrics import *
 from qa import qa_pipeline
 
 from gensim.models import Word2Vec, Doc2Vec, FastText
+from gensim.models.fasttext import load_facebook_vectors
 import gensim.downloader
+from gensim.test.utils import datapath
 from tqdm import tqdm
+import nltk
 
-def sent2vec(glove_vectors, sentence):
+def sent2vec(model, sentence):
     '''
     Args:
         A list of words
@@ -23,16 +26,15 @@ def sent2vec(glove_vectors, sentence):
         A sentence vector by concat/average/sum over word vectors
     '''
     sent_vec = None
-    unk_vector = np.zeros(50)
     for word in sentence:
-        word_vec = glove_vectors[word]
+        word_vec = model[word]
         if sent_vec is None:
             sent_vec = word_vec
         else:
-            sent_vec = np.sum([sent_vec,word_vec])
+            sent_vec = sent_vec + word_vec
         
     # TODO: we can try weighted average
-    sent_len = len(sent_vec)
+    sent_len = len(sentence)
     sent_vec = sent_vec/sent_len
     return sent_vec
 
@@ -44,10 +46,14 @@ if __name__ == "__main__":
     num_docs = len(doc_collection)
 
     # Use pre-trained Word2vec model
-    print(list(gensim.downloader.info()['models'].keys()))
-    glove_vectors = gensim.downloader.load('glove-wiki-gigaword-50')
-    # TODO: Train FastText model to be able to handle unknown words
-    # https://radimrehurek.com/gensim/models/fasttext.html
+    # Word2Vec:
+    # print(list(gensim.downloader.info()['models'].keys()))
+    # model = gensim.downloader.load('glove-wiki-gigaword-50')
+    # FastText:
+    # FastText model is able to handle unknown words
+    # Use FastText: https://radimrehurek.com/gensim/models/fasttext.html
+    cap_path = datapath("crime-and-punishment.bin")
+    model = load_facebook_vectors(cap_path)
 
     # Tokenize and preprocess documents - TODO: save to dataframe
     docs_tokenized = []
@@ -59,10 +65,8 @@ if __name__ == "__main__":
     # Change to vector - need to add padding (?)
     all_doc_vec = []
     for doc in docs_tokenized:
-        sent_vec = sent2vec(glove_vectors, doc)
-        print(sent_vec)
-        print(sent_vec.shape)
-        all_doc_vec.append(sent2vec(glove_vectors, doc))
+        sent_vec = sent2vec(model, doc)
+        all_doc_vec.append(sent_vec)
 
     eval = pd.read_csv('./data/evaluation.csv')
     eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
@@ -73,7 +77,7 @@ if __name__ == "__main__":
         query = preprocess_text(q)
         print(f"Processed query: {query}")
 
-        query_vec = sent2vec(glove_vectors, query)
+        query_vec = sent2vec(model, query)
         
         maxscore = -1*float("inf")
         result = None
