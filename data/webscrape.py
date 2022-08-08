@@ -2,11 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import json
-
-LINKS = []
-with open("links.txt", "r") as f:
-    LINKS = f.read().splitlines(keepends=False)
-f.close()
+import pandas as pd
 
 CONTENT_AREAS = ['featured-content--wrapper', 
                  'main-content column',  
@@ -53,20 +49,38 @@ def save_as_json(data, path):
     with open(path, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False)
     file.close()
-
-for url in LINKS:
-    page = requests.get(url)
-    soup = BeautifulSoup(page.content, "html.parser")
     
-    title = soup.find('h1').text
-    data = get_content_text(soup)
-    if len(data)<1:
-        continue
-    page_json = {'title': title, 
-             'data': data,
-             'uri': url} 
+if __name__=="__main__":
+    LINKS = []
+    with open("links.txt", "r") as f:
+        LINKS = f.read().splitlines(keepends=False)
+    f.close()
+    page_list = []
+    filename_tracker = {}
+    for url in LINKS:
+        page = requests.get(url)
+        soup = BeautifulSoup(page.content, "html.parser")
+        
+        title = soup.find('h1').text
+        data = get_content_text(soup)
+        if len(data)<1:
+            continue
     
-    path = "./documents/" + url.split("/")[-2] + ".json"
-    save_as_json(page_json, path)
+        filename = url.split("/")[-2]
+        count = filename_tracker.get(filename, 0) + 1
+        filename_tracker[filename] = count
+        if count>1:
+            filename+="-"+str(count-1)
+            
+        page_json = {'filename': filename,
+                     'title': title,
+                     'data': data,
+                     'uri': url}
+        page_list.append(page_json)
+        
+        path = "./documents/" + filename + ".json"
+        save_as_json(page_json, path)
+        
+    pd.DataFrame(page_list).to_csv('documents.csv')
     
 

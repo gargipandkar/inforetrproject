@@ -1,10 +1,15 @@
 import math
+import os
+import time
 
 import json
-import os
-
-from preprocessing import *
+import pandas as pd
 from collections import defaultdict
+
+from preprocessing import preprocess_text
+from metrics import *
+from qa import qa_pipeline
+
 
 '''
 Calculate TF
@@ -32,12 +37,29 @@ inputs: {word1 : {doc1: 1 , doc2: 4 ...}, ... } and doc1
 output: { word1 : 1, word2 : 2, word3 : 1, word4 : 1}
 '''
 
-def tf_(inv_idx, filename):
+def tf_(inv_idx, doc_id):
     frequencies = {}
     for term in inv_idx:
-        if filename in inv_idx[term].keys():
-            frequencies[term] = inv_idx[term][filename]
+        if doc_id in inv_idx[term].keys():
+            frequencies[term] = inv_idx[term][doc_id]
     return frequencies
+
+'''
+Calculate TF
+Given an inverted index and a filename/docID, return a dictionary
+with key as a word and value as the number of times it occurs in the doc. For instance:
+inputs: {word1 : {doc1: 1 , doc2: 4 ...}, ... } and doc1
+output: { word1 : 1, word2 : 2, word3 : 1, word4 : 1}
+'''
+
+
+def tf_(inv_idx, doc_id):
+    frequencies = {}
+    for term in inv_idx:
+        if doc_id in inv_idx[term].keys():
+            frequencies[term] = inv_idx[term][doc_id]
+    return frequencies
+
 
 '''  
 Calculate DF
@@ -75,11 +97,12 @@ IDF
 input = { 'a': 1, 'b' : 2, 'c' : 3, 'd' : 2, 'e' : 1}
 output =  { 'a' : 1.1, 'b' : 0.41, 'c' : 0.0, 'd' : 0.41, 'e' : 1.1}
 '''
-def idf_(df, corpus_size): 
+def idf_(df, corpus_size):
     idf = {}
     for term, freq in df.items():
-        idf[term] = round(math.log((corpus_size) / (freq)),2) 
+        idf[term] = round(math.log((corpus_size) / (freq)), 2)
     return idf
+
 
 '''
 BM25
@@ -119,61 +142,94 @@ average document length= 5
 inverted index= {word1 : {doc1: 1 , doc2: 4 ...}, ... }
 filename= doc1
 document frequency= { word1 : 1, word2 : 3, word3 : 4, word4 : 2}
-
 '''
-def _score(query, doc, avg_doc_len, inv_idx, filename, df, num_docs, k1=1.5, b=0.75): 
+def _score(query, doc, avg_doc_len, inv_idx, doc_id, df, num_docs, k1=1.5, b=0.75):
     score = 0.0
-    tf = tf_(inv_idx, filename) 
+    tf = tf_(inv_idx, doc_id)
     idf = idf_(df, num_docs)
     doc_len = len(doc)
     for term in query:
-        if term not in tf.keys(): 
+        if term not in tf.keys():
             continue
-        
+
         c_t = idf[term]
         num = (k1+1)*tf[term]
         denom = tf[term] + k1*((1-b) + b*(doc_len/avg_doc_len))
         doc_wt = num/denom
         score += c_t * doc_wt
-            
+
     return score
 
-if __name__=="__main__":
-    query = input("Type in some query:")
-    query = preprocess(query)
-    print(f"Processed query: {query}")
-    docs = []
+if __name__ == "__main__":
+    doc_collection = pd.read_csv('./data/documents.csv')
+    num_docs = len(doc_collection)
+        
+    docs_tokenized = []
     inv_idx = defaultdict(dict)
-    filelist = os.listdir("./data/documents")
-    num_docs = 0
-    for filename in filelist:
-       
-        with open("./data/documents/"+filename, "r", encoding="utf-8") as f:
-            if filename[-4:] == "json":
-                num_docs += 1
-                tmp = json.load(f)['data'] 
-                doc_terms = preprocess(tmp)
-                docs.append(doc_terms)
-                for term in doc_terms:
-                    doc_id = filename[:-5]
-                    inv_idx[term][doc_id] = inv_idx[term].get(doc_id,0) + 1
-
-    maxscore = -1*float("inf")
-    result = None
+    
+    for id, row in doc_collection.iterrows():
+        doc_data = row['data']
+        doc_terms = preprocess_text(doc_data)
+        docs_tokenized.append(doc_terms)
+        for term in doc_terms:
+            inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
 
     df = df_(inv_idx)
-    avg_doc_len = sum([len(d) for d in docs])/num_docs	# calculate average document length
-  
-    i=0
-    for filename in filelist:
-        # print(i)
-        if filename[-4:] == "json":
-            score = _score(query, docs[i], avg_doc_len, inv_idx, filename[:-5], df, num_docs)
-            print(score, end=' ')
-            if score>maxscore:
+    avg_doc_len = sum([len(d) for d in docs_tokenized])/num_docs
+    
+    eval = pd.read_csv('./data/evaluation.csv')
+    eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
+    rs = []
+    times = []
+    for _, row in eval.iterrows():
+        q = row['Query']
+        query = preprocess_text(q)
+        print(f"Processed query: {query}")
+        maxscore = -1*float("inf")
+        result = None
+
+        doc_scores = {}
+        i = 0
+        start = time.time()
+        for id in doc_collection.index:
+            score = _score(query, docs_tokenized[id], avg_doc_len,
+                        inv_idx, id, df, num_docs)
+            doc_scores[id] = score
+            if score > maxscore:
                 maxscore = score
                 result = i
-            i+= 1
+            i += 1
+
+        ranking = sorted(doc_scores.items(),
+                    key=lambda item: item[1], reverse=True)
+        try:
+            stop_idx = [item[1] for item in ranking].index(0)
+        except ValueError:
+            stop_idx = len(ranking)
+        stop_idx = min(stop_idx, 3)
+        retr = [doc_collection.iloc[item[0]]['filename'] for item in ranking[:stop_idx]]
+        end = time.time()
+        times.append(end-start)
+        print(f"Time taken = {end-start}s")
+        print("Retrieved:", retr)
+        r = get_relevance_scores(retr, row['Documents'])
+        print("Relevance: ", r)
+        print(f"Avg. precision = {average_precision(r)}, reciprocal rank = {reciprocal_rank(r)}")
+        rs.append(r)
+        top_doc = doc_collection.iloc[result]
+        print(f"\nDocument {top_doc['filename']}")
         
-    print(f"\nDocument {filelist[result]}")
-    
+        # get answer 
+        qa = {'question': q,
+              'context': top_doc['data']
+              }
+        start = time.time()
+        ans = qa_pipeline(qa)
+        end = time.time()
+        print(f"Q - {q}\nA - {ans['answer']}\nTime taken = {end-start}")
+        
+        print()
+
+    print(mean_average_precision(rs))
+    print(mean_reciprocal_rank(rs))
+    print(np.mean(times))
