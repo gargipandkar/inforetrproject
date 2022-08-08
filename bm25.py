@@ -2,6 +2,7 @@ import math
 import time
 
 import pandas as pd
+import json
 from collections import defaultdict
 
 from preprocessing import preprocess_text
@@ -93,7 +94,7 @@ class BM25:
             return ranking[:top_K]
 
 if __name__ == "__main__":
-    doc_collection = pd.read_csv('./data/documents.csv')
+    doc_collection = pd.read_csv('./data/processed.csv')
     num_docs = len(doc_collection)
         
     docs_tokenized = []
@@ -106,31 +107,37 @@ if __name__ == "__main__":
         for term in doc_terms:
             inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
 
+    with open('./data/invidx.json', 'w', encoding='utf-8') as f:
+        json.dump(inv_idx, f)
+        
+    
     bm25 = BM25(inverted_idx = inv_idx, docs_tokenized=docs_tokenized, num_docs=num_docs)
     
-    eval = pd.read_csv('./data/evaluation.csv')
-    eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
-    rs = []
-    times = []
-    for _, row in eval.iterrows():
-        q = row['Query']
-        query = preprocess_text(q)
-        print(f"Processed query: {query}")
-        maxscore = -1*float("inf")
-        result = None
+    pd.DataFrame({"term": bm25.idf.keys(), "idf": bm25.idf.values()}).to_csv('./data/idf.csv', index=False)
+        
+    # eval = pd.read_csv('./data/evaluation.csv')
+    # eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
+    # rs = []
+    # times = []
+    # for _, row in eval.iterrows():
+    #     q = row['Query']
+    #     query = preprocess_text(q)
+    #     print(f"Processed query: {query}")
+    #     maxscore = -1*float("inf")
+    #     result = None
 
-        doc_scores = {}
-        i = 0
-        start = time.time()
-        for id in doc_collection.index:
-            score = bm25.get_score(query, id)
-            doc_scores[id] = score
-            if score > maxscore:
-                maxscore = score
-                result = i
-            i += 1
+    #     doc_scores = {}
+    #     i = 0
+    #     start = time.time()
+    #     for id in doc_collection.index:
+    #         score = bm25.get_score(query, id)
+    #         doc_scores[id] = score
+    #         if score > maxscore:
+    #             maxscore = score
+    #             result = i
+    #         i += 1
 
-        ranking = bm25.get_ranking(doc_scores=doc_scores, top_K=3)
+    #     ranking = bm25.get_ranking(doc_scores=doc_scores, top_K=3)
     #     try:
     #         stop_idx = [item[1] for item in ranking].index(0)
     #     except ValueError:
