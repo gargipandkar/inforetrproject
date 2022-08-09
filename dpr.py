@@ -23,7 +23,12 @@ if __name__=="__main__":
     
     docs = pd.read_csv('./data/documents.csv')[:20]
     doc_embeddings = doc_encoder.encode(docs['data'])
-
+    
+    import pickle
+    fname = './data/nn_docs.pickle'
+    with open(fname, 'wb') as f:
+        pickle.dump(doc_embeddings, f)
+        
     query = "Where can I find good vegetarian food?"
     query_embedding = query_encoder.encode(query)
 
