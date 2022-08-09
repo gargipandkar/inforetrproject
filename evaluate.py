@@ -1,5 +1,8 @@
-import pandas as pd
+import os
 import time
+
+import pickle
+import pandas as pd
 from collections import defaultdict
 
 from preprocessing import preprocess_text
@@ -12,7 +15,6 @@ class Engine:
     def __init__(self, collection, name):
         self.collection = collection
         self.name = name
-        
         self.num_docs = len(collection)
         self.docs_tokenized = self.tokenize(collection)
         
@@ -25,7 +27,32 @@ class Engine:
             doc_terms = doc_data.split()
             docs_tokenized.append(doc_terms)
         return docs_tokenized
-            
+    
+    def get_inv_idx(self):
+        # read from file, else calculate
+        inv_idx = defaultdict(dict)
+        fname = './data/invidx.pickle'
+        if os.path.exists(fname):
+            with open(fname, 'rb') as f:
+                inv_idx = pickle.load(f)
+        else:
+            for id, row in self.collection.iterrows():
+                doc_data = row['data']
+                doc_terms = doc_data.split()
+                for term in doc_terms:
+                    inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
+        return inv_idx
+    
+    def get_idf(self):
+        idf, fname = None, './data/idf.csv'
+        if os.path.exists(fname):
+            idf = pd.read_csv(fname, index_col='term')
+            idf = idf.to_dict()['idf']
+        return idf
+    
+    def get_wv_model(self):
+        pass
+    
     def get_ranking(self, doc_scores, top_K = None):
         ranking = sorted(doc_scores.items(),
                     key=lambda item: item[1], reverse=True)
@@ -34,8 +61,12 @@ class Engine:
         else:
             return ranking[:top_K]
         
-    def retrieve(self, query, collection, ir_method):
-        pass
+    def retrieve(self, query):
+        ranking = None
+        if self.name=="bm25":
+            ranking = self.run_bm25(query)
+            
+        return ranking
 
     def retrieve_with_qe(self, query):
         '''
@@ -44,7 +75,7 @@ class Engine:
         Do local query expansion
         Run IR method with expanded query
         '''            
-        init_ranking = self.run_bm25(query, top_K=5)
+        init_ranking = self.run_bm25(query, top_K=3)
         
         query = preprocess_text(query)
         print(f"Processed query: {query}")
@@ -62,14 +93,9 @@ class Engine:
         return ranking
         
     def run_bm25(self, query, top_K=3):
-        inv_idx = defaultdict(dict)
-        for id, row in self.collection.iterrows():
-            doc_data = row['data']
-            doc_terms = doc_data.split()
-            for term in doc_terms:
-                inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
-                
-        bm25 = BM25(inverted_idx=inv_idx, docs_tokenized=self.docs_tokenized, num_docs=self.num_docs)
+        inv_idx = self.get_inv_idx()
+        idf = self.get_idf()            
+        bm25 = BM25(inverted_idx=inv_idx, docs_tokenized=self.docs_tokenized, num_docs=self.num_docs, idf=idf)
         
         if isinstance(query, str):
             query = preprocess_text(query)
@@ -82,8 +108,22 @@ class Engine:
         ranking = self.get_ranking(doc_scores=doc_scores, top_K=top_K)
         return ranking
     
-    def run_vsm(self, query):
-        pass
+    def run_vsm(self, query, top_K=3):
+        if isinstance(query, str):
+            query = preprocess_text(query)
+        
+        model = self.get_wv_model()
+        all_doc_vec = None #TODO: write method to read file or vectorize
+        query_vec = sent2vec(model.wv, query)
+        
+        doc_scores = {}
+        for id in range(self.num_docs):
+            doc_vec = all_doc_vec[id]
+            score = cosinesimilarity(query_vec, doc_vec)
+            doc_scores[id] = score
+
+        ranking = self.get_ranking(doc_scores=doc_scores, top_K=top_K)
+        return ranking
     
 
 if __name__ == "__main__":
@@ -107,7 +147,7 @@ if __name__ == "__main__":
         q = row['Query']
       
         start = time.time()
-        ranking = engine.retrieve_with_qe(query=q)
+        ranking = engine.retrieve(query=q)
         end = time.time()
         
         times.append(end-start)

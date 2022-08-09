@@ -11,13 +11,15 @@ from qa import qa_pipeline
 
 class BM25:
 
-    def __init__(self, inverted_idx, docs_tokenized, num_docs):
+    def __init__(self, inverted_idx, docs_tokenized, num_docs, idf=None):
         self.inv_idx = inverted_idx
-        self.num_docs = num_docs
         self.docs_tokenized = docs_tokenized
+        self.num_docs = num_docs
         self.avg_doc_len = sum([len(d) for d in docs_tokenized])/num_docs
-        self.df = self.calculate_df()
-        self.idf = self.calculate_idf()
+        if idf is None:
+            self.df, self.idf = self.calculate_df_idf()
+        else:
+            self.idf = idf
     
     '''
     Calculate TF
@@ -26,7 +28,6 @@ class BM25:
     inputs: {word1 : {doc1: 1 , doc2: 4 ...}, ... } and doc1
     output: { word1 : 1, word2 : 2, word3 : 1, word4 : 1}
     '''
-
     def get_tf(self, doc_id):
         frequencies = {}
         for term in self.inv_idx:
@@ -58,6 +59,16 @@ class BM25:
             idf[term] = round(math.log((self.num_docs) / (freq)), 2)
         return idf
 
+    '''
+    DF and IDF
+    '''
+    def calculate_df_idf(self):
+        df, idf = {}, {}
+        for term in self.inv_idx:
+            df[term] = len(self.inv_idx[term]) 
+            idf[term] = round(math.log(self.num_docs / df[term]), 2)
+        return df, idf
+    
     '''
     BM25
     Score a document given a tokenized query, doc, average document length, inverted index, filename/docID and document frequency. 
@@ -106,66 +117,60 @@ if __name__ == "__main__":
         docs_tokenized.append(doc_terms)
         for term in doc_terms:
             inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
-
-    with open('./data/invidx.json', 'w', encoding='utf-8') as f:
-        json.dump(inv_idx, f)
-        
     
     bm25 = BM25(inverted_idx = inv_idx, docs_tokenized=docs_tokenized, num_docs=num_docs)
-    
-    pd.DataFrame({"term": bm25.idf.keys(), "idf": bm25.idf.values()}).to_csv('./data/idf.csv', index=False)
-        
-    # eval = pd.read_csv('./data/evaluation.csv')
-    # eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
-    # rs = []
-    # times = []
-    # for _, row in eval.iterrows():
-    #     q = row['Query']
-    #     query = preprocess_text(q)
-    #     print(f"Processed query: {query}")
-    #     maxscore = -1*float("inf")
-    #     result = None
+       
+    eval = pd.read_csv('./data/evaluation.csv')[:1]
+    eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
+    rs = []
+    times = []
+    for _, row in eval.iterrows():
+        q = row['Query']
+        query = preprocess_text(q)
+        print(f"Processed query: {query}")
+        maxscore = -1*float("inf")
+        result = None
 
-    #     doc_scores = {}
-    #     i = 0
-    #     start = time.time()
-    #     for id in doc_collection.index:
-    #         score = bm25.get_score(query, id)
-    #         doc_scores[id] = score
-    #         if score > maxscore:
-    #             maxscore = score
-    #             result = i
-    #         i += 1
+        doc_scores = {}
+        i = 0
+        start = time.time()
+        for id in doc_collection.index:
+            score = bm25.get_score(query, id)
+            doc_scores[id] = score
+            if score > maxscore:
+                maxscore = score
+                result = i
+            i += 1
 
-    #     ranking = bm25.get_ranking(doc_scores=doc_scores, top_K=3)
-    #     try:
-    #         stop_idx = [item[1] for item in ranking].index(0)
-    #     except ValueError:
-    #         stop_idx = len(ranking)
-    #     stop_idx = min(stop_idx, 3)
-    #     retr = [doc_collection.iloc[item[0]]['filename'] for item in ranking[:stop_idx]]
-    #     end = time.time()
-    #     times.append(end-start)
-    #     print(f"Time taken = {end-start}s")
-    #     print("Retrieved:", retr)
-    #     r = get_relevance_scores(retr, row['Documents'])
-    #     print("Relevance: ", r)
-    #     print(f"Avg. precision = {average_precision(r)}, reciprocal rank = {reciprocal_rank(r)}")
-    #     rs.append(r)
-    #     top_doc = doc_collection.iloc[result]
-    #     print(f"\nDocument {top_doc['filename']}")
+        ranking = bm25.get_ranking(doc_scores=doc_scores, top_K=3)
+        try:
+            stop_idx = [item[1] for item in ranking].index(0)
+        except ValueError:
+            stop_idx = len(ranking)
+        stop_idx = min(stop_idx, 3)
+        retr = [doc_collection.iloc[item[0]]['filename'] for item in ranking[:stop_idx]]
+        end = time.time()
+        times.append(end-start)
+        print(f"Time taken = {end-start}s")
+        print("Retrieved:", retr)
+        r = get_relevance_scores(retr, row['Documents'])
+        print("Relevance: ", r)
+        print(f"Avg. precision = {average_precision(r)}, reciprocal rank = {reciprocal_rank(r)}")
+        rs.append(r)
+        top_doc = doc_collection.iloc[result]
+        print(f"\nDocument {top_doc['filename']}")
         
-    #     # get answer 
-    #     qa = {'question': q,
-    #           'context': top_doc['data']
-    #           }
-    #     start = time.time()
-    #     ans = qa_pipeline(qa)
-    #     end = time.time()
-    #     print(f"Q - {q}\nA - {ans['answer']}\nTime taken = {end-start}")
+        # get answer 
+        qa = {'question': q,
+              'context': top_doc['data']
+              }
+        start = time.time()
+        ans = qa_pipeline(qa)
+        end = time.time()
+        print(f"Q - {q}\nA - {ans['answer']}\nTime taken = {end-start}")
         
-    #     print()
+        print()
 
-    # print(mean_average_precision(rs))
-    # print(mean_reciprocal_rank(rs))
-    # print(np.mean(times))
+    print(mean_average_precision(rs))
+    print(mean_reciprocal_rank(rs))
+    print(np.mean(times))
