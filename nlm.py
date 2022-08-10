@@ -13,6 +13,8 @@ To further reduce latency, index embedding of predicted queries
 import torch
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 
+from nltk import word_tokenize, sent_tokenize
+
 torch.manual_seed(42)
 
 import pandas as pd 
@@ -23,35 +25,26 @@ tokenizer = T5Tokenizer.from_pretrained('castorini/doc2query-t5-base-msmarco')
 model = T5ForConditionalGeneration.from_pretrained('castorini/doc2query-t5-base-msmarco')
 model.to(device)
 
-# doc_text = "INSERT TEXT HERE"
-# input_ids = tokenizer.encode(doc_text, return_tensors='pt').to(device)
-# k = 5
-# outputs = model.generate(
-#     input_ids=input_ids,
-#     max_length=32,
-#     repetition_penalty=2.5,
-#     do_sample=True,
-#     top_k=k,
-#     num_return_sequences=3)
+if __name__ == "__main__":
+    docs = pd.read_csv('./data/documents.csv')
+    pred_queries = {}
+    for id, doc in docs.iterrows():
+        # print(doc['title'])
+        doc_text = doc['data']
+        input_ids = tokenizer.encode(doc_text, truncation=True, return_tensors='pt').to(device)
+        outputs = model.generate(
+            input_ids=input_ids,
+            max_length=25,
+            repetition_penalty=2.5,
+            do_sample=True,
+            top_k=3,
+            num_return_sequences=1)
 
-# for i in range(3):
-#     print(f'sample {i + 1}: {tokenizer.decode(outputs[i], skip_special_tokens=True)}')
+        predicted = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        pred_queries[id] = predicted
+        # print(f'generated: {predicted}\n')
 
-docs = pd.read_csv('./data/documents.csv')[:3]
-
-for _, doc in docs.iterrows():
-    doc_text = doc['data'][:256]
-    print(doc['title'])
-    input_ids = tokenizer.encode(doc_text, return_tensors='pt').to(device)
-    k = 5
-    outputs = model.generate(
-        input_ids=input_ids,
-        max_length=32,
-        repetition_penalty=2.5,
-        do_sample=True,
-        top_k=k,
-        num_return_sequences=3)
-
-    for i in range(3):
-        print(f'sample {i + 1}: {tokenizer.decode(outputs[i], skip_special_tokens=True)}')
-    print()
+        import pickle
+        fname = './data/nlm_queries.pickle'
+        with open(fname, 'wb') as f:
+            pickle.dump(pred_queries, f)

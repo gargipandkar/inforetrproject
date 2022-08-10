@@ -39,6 +39,12 @@ class Engine:
         if method=="nn":
             self.query_encoder = SentenceTransformer('facebook-dpr-question_encoder-single-nq-base')
             self.doc_embeddings = self.get_nn_docs()
+        if method=="ss":
+            self.encoder = SentenceTransformer('./data/semanticsearch')
+            self.doc_embeddings = self.get_ss_docs()
+        if method=="nlm":
+            self.model = self.get_wv_model()
+            self.pred_queries = self.get_nlm_queries()
             
     def tokenize(self, collection):
         if collection is None:
@@ -89,6 +95,18 @@ class Engine:
             doc_embeddings = pickle.load(f)
         return doc_embeddings
     
+    def get_ss_docs(self):
+        doc_embeddings, fname = None, './data/ss_docs.pickle'
+        with open(fname, 'rb') as f:
+            doc_embeddings = pickle.load(f)
+        return doc_embeddings
+    
+    def get_nlm_queries(self):
+        preds, fname = None, './data/nlm_queries.pickle'
+        with open(fname, 'rb') as f:
+            preds = pickle.load(f)
+        return preds
+    
     def get_ranking(self, doc_scores, top_K = None):
         ranking = sorted(doc_scores.items(),
                     key=lambda item: item[1], reverse=True)
@@ -107,6 +125,10 @@ class Engine:
             ranking = self.run_vsm(query)
         elif "nn" in self.name:
             ranking = self.run_nn_encoder(query)
+        elif "ss" in self.name:
+            ranking = self.run_semantic_search(query)
+        elif "nlm" in self.name:
+            ranking = self.run_nlm(query)
         return ranking
 
     def get_expanded_query(self, query):
@@ -151,21 +173,43 @@ class Engine:
         scores = util.dot_score(query_embedding, self.doc_embeddings)
         values, indices = torch.topk(scores, k=3, sorted=True)
         ranking =  list(zip(indices.flatten().tolist(), values.flatten().tolist()))
-        print(ranking)
         return ranking
     
-    def run_nlm(self):
-        pass
+    def run_semantic_search(self, query):
+        query_embedding = self.encoder.encode(query)
+
+        scores = util.cos_sim(query_embedding, self.doc_embeddings)
+        values, indices = torch.topk(scores, k=3, sorted=True)
+        ranking =  list(zip(indices.flatten().tolist(), values.flatten().tolist()))
+        return ranking
     
+    def run_nlm(self, query):
+        if isinstance(query, str):
+            query = preprocess_text(query)
+        
+        query_vec = sent2vec(self.model.wv, query)
+        
+        doc_scores = {}
+        for id in range(self.num_docs):
+            pred_query = self.pred_queries[id]
+            pred_query = preprocess_text(pred_query)
+            pred_query_vec = sent2vec(self.model.wv, pred_query)
+            score = cosinesimilarity(query_vec, pred_query_vec)
+            doc_scores[id] = score
+        ranking = self.get_ranking(doc_scores=doc_scores, top_K=3)
+        return ranking
     
 if __name__ == "__main__":
    
-    doc_collection = pd.read_csv('./data/fulldocuments.csv')
+    doc_collection = pd.read_csv('./data/documents.csv')
     eval = pd.read_csv('./data/newevaluation.csv')
     eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
     
     # params = [("bm25", False), ("bm25", True), ("vsm", False), ("vsm", True), ("nn", False)]
-    params = [("bm25", False),  ("vsm", False), ("nn", False)]
+    # params = [("bm25", False),  ("vsm", False), ("nn", False)]
+    # params = [("bm25", True), ("vsm", True)]
+    # params = [("nlm", False)]
+    params = [("ss", False)]
     metrics = {}
     
     for param in params:

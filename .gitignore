@@ -1,5 +1,6 @@
 #Local files
 data/documents/
+data/semanticsearch/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

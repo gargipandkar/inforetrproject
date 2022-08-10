@@ -60,4 +60,3 @@ if __name__=="__main__":
         idf[term] = round(math.log(num_docs / df[term]), 2)
     
     pd.DataFrame({"term": idf.keys(), "idf": idf.values()}).to_csv(IDF_FILE, index=False)
-        
