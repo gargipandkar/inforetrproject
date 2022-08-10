@@ -2,6 +2,7 @@ import math
 import time
 
 import pandas as pd
+import json
 from collections import defaultdict
 
 from preprocessing import preprocess_text
@@ -10,13 +11,15 @@ from qa import qa_pipeline
 
 class BM25:
 
-    def __init__(self, inverted_idx, docs_tokenized, num_docs):
+    def __init__(self, inverted_idx, docs_tokenized, num_docs, idf=None):
         self.inv_idx = inverted_idx
-        self.num_docs = num_docs
         self.docs_tokenized = docs_tokenized
+        self.num_docs = num_docs
         self.avg_doc_len = sum([len(d) for d in docs_tokenized])/num_docs
-        self.df = self.calculate_df()
-        self.idf = self.calculate_idf()
+        if idf is None:
+            self.df, self.idf = self.calculate_df_idf()
+        else:
+            self.idf = idf
     
     '''
     Calculate TF
@@ -25,7 +28,6 @@ class BM25:
     inputs: {word1 : {doc1: 1 , doc2: 4 ...}, ... } and doc1
     output: { word1 : 1, word2 : 2, word3 : 1, word4 : 1}
     '''
-
     def get_tf(self, doc_id):
         frequencies = {}
         for term in self.inv_idx:
@@ -57,6 +59,16 @@ class BM25:
             idf[term] = round(math.log((self.num_docs) / (freq)), 2)
         return idf
 
+    '''
+    DF and IDF
+    '''
+    def calculate_df_idf(self):
+        df, idf = {}, {}
+        for term in self.inv_idx:
+            df[term] = len(self.inv_idx[term]) 
+            idf[term] = round(math.log(self.num_docs / df[term]), 2)
+        return df, idf
+    
     '''
     BM25
     Score a document given a tokenized query, doc, average document length, inverted index, filename/docID and document frequency. 
@@ -93,7 +105,7 @@ class BM25:
             return ranking[:top_K]
 
 if __name__ == "__main__":
-    doc_collection = pd.read_csv('./data/documents.csv')
+    doc_collection = pd.read_csv('./data/processed.csv')
     num_docs = len(doc_collection)
         
     docs_tokenized = []
@@ -105,10 +117,10 @@ if __name__ == "__main__":
         docs_tokenized.append(doc_terms)
         for term in doc_terms:
             inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
-
-    bm25 = BM25(inverted_idx = inv_idx, docs_tokenized=docs_tokenized, num_docs=num_docs)
     
-    eval = pd.read_csv('./data/evaluation.csv')
+    bm25 = BM25(inverted_idx = inv_idx, docs_tokenized=docs_tokenized, num_docs=num_docs)
+       
+    eval = pd.read_csv('./data/evaluation.csv')[:1]
     eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
     rs = []
     times = []
@@ -131,34 +143,34 @@ if __name__ == "__main__":
             i += 1
 
         ranking = bm25.get_ranking(doc_scores=doc_scores, top_K=3)
-    #     try:
-    #         stop_idx = [item[1] for item in ranking].index(0)
-    #     except ValueError:
-    #         stop_idx = len(ranking)
-    #     stop_idx = min(stop_idx, 3)
-    #     retr = [doc_collection.iloc[item[0]]['filename'] for item in ranking[:stop_idx]]
-    #     end = time.time()
-    #     times.append(end-start)
-    #     print(f"Time taken = {end-start}s")
-    #     print("Retrieved:", retr)
-    #     r = get_relevance_scores(retr, row['Documents'])
-    #     print("Relevance: ", r)
-    #     print(f"Avg. precision = {average_precision(r)}, reciprocal rank = {reciprocal_rank(r)}")
-    #     rs.append(r)
-    #     top_doc = doc_collection.iloc[result]
-    #     print(f"\nDocument {top_doc['filename']}")
+        try:
+            stop_idx = [item[1] for item in ranking].index(0)
+        except ValueError:
+            stop_idx = len(ranking)
+        stop_idx = min(stop_idx, 3)
+        retr = [doc_collection.iloc[item[0]]['filename'] for item in ranking[:stop_idx]]
+        end = time.time()
+        times.append(end-start)
+        print(f"Time taken = {end-start}s")
+        print("Retrieved:", retr)
+        r = get_relevance_scores(retr, row['Documents'])
+        print("Relevance: ", r)
+        print(f"Avg. precision = {average_precision(r)}, reciprocal rank = {reciprocal_rank(r)}")
+        rs.append(r)
+        top_doc = doc_collection.iloc[result]
+        print(f"\nDocument {top_doc['filename']}")
         
-    #     # get answer 
-    #     qa = {'question': q,
-    #           'context': top_doc['data']
-    #           }
-    #     start = time.time()
-    #     ans = qa_pipeline(qa)
-    #     end = time.time()
-    #     print(f"Q - {q}\nA - {ans['answer']}\nTime taken = {end-start}")
+        # get answer 
+        qa = {'question': q,
+              'context': top_doc['data']
+              }
+        start = time.time()
+        ans = qa_pipeline(qa)
+        end = time.time()
+        print(f"Q - {q}\nA - {ans['answer']}\nTime taken = {end-start}")
         
-    #     print()
+        print()
 
-    # print(mean_average_precision(rs))
-    # print(mean_reciprocal_rank(rs))
-    # print(np.mean(times))
+    print(mean_average_precision(rs))
+    print(mean_reciprocal_rank(rs))
+    print(np.mean(times))
