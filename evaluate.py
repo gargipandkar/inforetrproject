@@ -12,8 +12,9 @@ import torch
 from preprocessing import preprocess_text
 from metrics import *
 from bm25 import BM25
-from vsm import *
-from queryexp import *
+from vsm import VSM
+from wordrep import sent2vec
+from queryexp import queryexp
 from qa import qa_pipeline
 
 class Engine:
@@ -34,13 +35,18 @@ class Engine:
                              num_docs=self.num_docs, 
                              idf=idf)
         if method=="vsm":
+            inv_idx = self.get_inv_idx()
+            idf = self.get_idf()
+            self.vsm = VSM(inverted_idx=inv_idx, 
+                           docs_tokenized=self.docs_tokenized, 
+                           num_docs=self.num_docs, 
+                           idf=idf)
+            self.all_doc_vec = self.get_vsm_docs()
+        if method=="wordrep":
             self.model = self.get_wv_model()
             self.all_doc_vec = self.get_wv_docs()
-        if method=="nn":
-            self.query_encoder = SentenceTransformer('facebook-dpr-question_encoder-single-nq-base')
-            self.doc_embeddings = self.get_nn_docs()
         if method=="ss":
-            self.encoder = SentenceTransformer('./data/semanticsearch')
+            self.encoder = SentenceTransformer('./data/checkpoint')
             self.doc_embeddings = self.get_ss_docs()
         if method=="nlm":
             self.model = self.get_wv_model()
@@ -69,6 +75,8 @@ class Engine:
                 doc_terms = doc_data.split()
                 for term in doc_terms:
                     inv_idx[term][id] = inv_idx[term].get(id, 0) + 1
+            with open(fname, 'wb') as f:
+                pickle.dump(inv_idx, f)
         return inv_idx
     
     def get_idf(self):
@@ -76,24 +84,30 @@ class Engine:
         if os.path.exists(fname):
             idf = pd.read_csv(fname, index_col='term')
             idf = idf.to_dict()['idf']
+        else:
+            df, idf = {}, {}
+            for term in self.inv_idx:
+                df[term] = len(self.inv_idx[term]) 
+                idf[term] = round(math.log(self.num_docs / df[term]), 2)
+            idf.to_csv(fname, index=False)
         return idf
     
+    def get_vsm_docs(self):
+        all_doc_vec, fname = None, './data/vsm_docs.pickle'
+        with open(fname, 'rb') as f:
+            all_doc_vec  = pickle.load(f)
+        return all_doc_vec
+        
     def get_wv_model(self):
         fname = "./data/fasttext.model"
         model = FastText.load(fname)
         return model
             
     def get_wv_docs(self):
-        all_doc_vec, fname = None, './data/vsm_docs.pickle'
+        all_doc_vec, fname = None, './data/wr_docs.pickle'
         with open(fname, 'rb') as f:
             all_doc_vec  = pickle.load(f)
         return all_doc_vec
-    
-    def get_nn_docs(self):
-        doc_embeddings, fname = None, './data/nn_docs.pickle'
-        with open(fname, 'rb') as f:
-            doc_embeddings = pickle.load(f)
-        return doc_embeddings
     
     def get_ss_docs(self):
         doc_embeddings, fname = None, './data/ss_docs.pickle'
@@ -107,30 +121,6 @@ class Engine:
             preds = pickle.load(f)
         return preds
     
-    def get_ranking(self, doc_scores, top_K = None):
-        ranking = sorted(doc_scores.items(),
-                    key=lambda item: item[1], reverse=True)
-        if top_K == None:
-            return ranking
-        else:
-            return ranking[:top_K]
-        
-    def retrieve(self, query):
-        if self.qe:
-            query = self.get_expanded_query(query)
-        ranking = None
-        if "bm25" in self.name:
-            ranking = self.run_bm25(query)
-        elif "vsm" in self.name:
-            ranking = self.run_vsm(query)
-        elif "nn" in self.name:
-            ranking = self.run_nn_encoder(query)
-        elif "ss" in self.name:
-            ranking = self.run_semantic_search(query)
-        elif "nlm" in self.name:
-            ranking = self.run_nlm(query)
-        return ranking
-
     def get_expanded_query(self, query):
         '''
         Run BM25 to get initial ranking 
@@ -142,6 +132,22 @@ class Engine:
         query_exp = queryexp(query=query, topkdocs=init_ranking, docs_tokenized=self.docs_tokenized)
         return query_exp
         
+    def retrieve(self, query):
+        if self.qe:
+            query = self.get_expanded_query(query)
+        ranking = None
+        if "bm25" in self.name:
+            ranking = self.run_bm25(query)
+        elif "vsm" in self.name:
+            ranking = self.run_vsm(query)
+        elif "wordrep" in self.name:
+            ranking = self.run_wordrep(query)
+        elif "ss" in self.name:
+            ranking = self.run_semantic_search(query)
+        elif "nlm" in self.name:
+            ranking = self.run_nlm(query)
+        return ranking
+
     def run_bm25(self, query, top_K=3):
         if isinstance(query, str):
             query = preprocess_text(query)
@@ -150,10 +156,24 @@ class Engine:
         for id in range(self.num_docs):
             score = self.bm25.get_score(query, id)
             doc_scores[id] = score
-        ranking = self.get_ranking(doc_scores=doc_scores, top_K=top_K)
+        ranking = get_ranking(doc_scores=doc_scores, top_K=top_K)
         return ranking
     
     def run_vsm(self, query, top_K=3):
+        if isinstance(query, str):
+            query = preprocess_text(query)
+        
+        query_vec = self.vsm.get_query_vector(query)
+        
+        doc_scores = {}
+        for id in range(self.num_docs):
+            doc_vec = self.all_doc_vec[id]
+            score = self.vsm.get_score(query_vec, doc_vec)
+            doc_scores[id] = score
+        ranking = get_ranking(doc_scores=doc_scores, top_K=top_K)
+        return ranking
+       
+    def run_wordrep(self, query, top_K=3):
         if isinstance(query, str):
             query = preprocess_text(query)
         
@@ -164,25 +184,16 @@ class Engine:
             doc_vec = self.all_doc_vec[id]
             score = cosinesimilarity(query_vec, doc_vec)
             doc_scores[id] = score
-        ranking = self.get_ranking(doc_scores=doc_scores, top_K=top_K)
-        return ranking
-    
-    def run_nn_encoder(self, query):        
-        query_embedding = self.query_encoder.encode(query)
-
-        scores = util.dot_score(query_embedding, self.doc_embeddings)
-        values, indices = torch.topk(scores, k=3, sorted=True)
-        ranking =  list(zip(indices.flatten().tolist(), values.flatten().tolist()))
+        ranking = get_ranking(doc_scores=doc_scores, top_K=top_K)
         return ranking
     
     def run_semantic_search(self, query):
         query_embedding = self.encoder.encode(query)
-
         scores = util.cos_sim(query_embedding, self.doc_embeddings)
         values, indices = torch.topk(scores, k=3, sorted=True)
         ranking =  list(zip(indices.flatten().tolist(), values.flatten().tolist()))
         return ranking
-    
+
     def run_nlm(self, query):
         if isinstance(query, str):
             query = preprocess_text(query)
@@ -196,27 +207,27 @@ class Engine:
             pred_query_vec = sent2vec(self.model.wv, pred_query)
             score = cosinesimilarity(query_vec, pred_query_vec)
             doc_scores[id] = score
-        ranking = self.get_ranking(doc_scores=doc_scores, top_K=3)
+        ranking = get_ranking(doc_scores=doc_scores, top_K=3)
         return ranking
     
 if __name__ == "__main__":
    
     doc_collection = pd.read_csv('./data/documents.csv')
-    eval = pd.read_csv('./data/newevaluation.csv')
+    eval = pd.read_csv('./data/evaluation.csv')
     eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
     
-    # params = [("bm25", False), ("bm25", True), ("vsm", False), ("vsm", True), ("nn", False)]
-    # params = [("bm25", False),  ("vsm", False), ("nn", False)]
-    # params = [("bm25", True), ("vsm", True)]
-    # params = [("nlm", False)]
-    params = [("ss", False)]
+    # params = [("bm25", False), ("bm25", True), ("wordrep", False), ("wordrep", True), ("vsm", False), ("nlm", False), ("ss", False)]
+    # params = [("bm25", False),  ("wordrep", False)]
+    # params = [("bm25", True), ("wordrep", True)]
+    params = [("nlm", False)]
+    # params = [("wordrep", False)]
+    # params = [("ss", False), ("vsm", False)]
     metrics = {}
     
     for param in params:
         method, qe = param
         engine = Engine(collection=doc_collection, method=method, qe=qe)
 
-        eval[engine.name] = None
         eval[engine.name+'_score'] = None
         rs = []
         times = []

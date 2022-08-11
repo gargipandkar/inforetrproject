@@ -88,3 +88,14 @@ def get_relevance_scores(pred, actual):
         except ValueError:
             continue
     return r.tolist()
+
+def get_ranking(doc_scores, top_K = None):
+    ranking = sorted(doc_scores.items(),
+                key=lambda item: item[1], reverse=True)
+    if top_K == None:
+        return ranking
+    else:
+        return ranking[:top_K]
+    
+def cosinesimilarity(u, v):
+    return np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v))

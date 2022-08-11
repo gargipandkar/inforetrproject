@@ -1,5 +1,14 @@
-# Information Retrieval Project: Question-Answer System
+# Information Retrieval Project: Question Answering System
 
 ### Getting data
-Option 1: Unzip [`documents.zip`](inforetrproject\data\documents.zip) into `data/documents/`  
-Option 2: Run script [`webscrape.py`](inforetrproject\data\webscrape.py) from `data` directory  
+If you do not find `documents.csv`, run script `webscrape.py` in `data` directory  
+
+### Instructions
+- Run script `preprocessing.py`
+- To use semantic search, run the training script or download weights [here](https://drive.google.com/drive/folders/1Ef7i-3uv7uuS8SeTbX6dWjtKvJFmcQ8u?usp=sharing) into `data/checkpoints/`
+- Run scripts `vsm.py`, `wordrep.py`, `nlm.py` and `semanticsearch.py`
+- For evaluation, run `evaluate.py`
+- For inference, run `inference.py`
+
+### Evaluation output
+You can view results of evaluation in `answers.csv` and `metrics.csv`

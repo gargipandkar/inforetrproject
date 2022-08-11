@@ -10,15 +10,7 @@ import pandas as pd
 
 if __name__=="__main__":
    
-    encoder = SentenceTransformer('./data/semanticsearch')
-
-    # docs = [
-    #     "London [SEP] London is the capital and largest city of England and the United Kingdom.",
-    #     "Paris [SEP] Paris is the capital and most populous city of France.",
-    #     "Berlin [SEP] Berlin is the capital and largest city of Germany by both area and population."
-    # ]
-    
-    # query = "What is the capital of England?"
+    encoder = SentenceTransformer('./data/checkpoint')
     
     docs = pd.read_csv('./data/documents.csv')
     doc_embeddings = encoder.encode(docs['data'])
@@ -28,7 +20,8 @@ if __name__=="__main__":
     with open(fname, 'wb') as f:
         pickle.dump(doc_embeddings, f)
         
-    query = "Where can I find good vegetarian food?"
+    # Test example
+    query = "Is there a safari in Singapore?"
     query_embedding = encoder.encode(query)
 
     scores = util.dot_score(query_embedding, doc_embeddings)
