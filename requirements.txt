@@ -2,6 +2,7 @@ beautifulsoup4
 contractions
 nltk
 numpy
+sentence_transformers
 torch
 transformers
 gensim

@@ -216,12 +216,9 @@ if __name__ == "__main__":
     eval = pd.read_csv('./data/evaluation.csv')
     eval['Documents'] = eval['Documents'].apply(lambda x: x.strip("[]").replace("'","").split(", "))
     
-    # params = [("bm25", False), ("bm25", True), ("wordrep", False), ("wordrep", True), ("vsm", False), ("nlm", False), ("ss", False)]
-    # params = [("bm25", False),  ("wordrep", False)]
-    # params = [("bm25", True), ("wordrep", True)]
-    params = [("nlm", False)]
-    # params = [("wordrep", False)]
-    # params = [("ss", False), ("vsm", False)]
+    params = [("bm25", False), ("bm25", True), 
+              ("wordrep", False), ("wordrep", True), 
+              ("vsm", False), ("nlm", False), ("ss", False)]
     metrics = {}
     
     for param in params:
