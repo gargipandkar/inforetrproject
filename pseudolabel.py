@@ -63,26 +63,35 @@ if __name__=="__main__":
             neg_docs = []
             
             # add document which query comes from as positive sample
-            pos_docs.append(doc_id)
+            # pos_docs.append(doc_id)
             
             # run BM25 
             doc_scores = {}
             for d in doc_collection.index:
                 score = bm25.get_score(query=query, doc_id=d)
                 doc_scores[d] = score
-                
+            
+            # Normalize BM25 scores
+            total_scores = sum(doc_scores.values())
+            for doc, score in doc_scores.items():
+                if total_scores != 0.0:
+                    doc_scores[doc] = round(score / total_scores, 5)
+
             ranking = bm25.get_ranking(doc_scores=doc_scores)
             
             # reduce since we already have one positive doc
-            pos_choices = [item[0] for item in ranking[:M]]
-            try:
-                pos_choices.remove(doc_id)
-            except ValueError:
-                pos_choices = pos_choices[:-1]
-            pos_docs += pos_choices
-            
+            # pos_choices = [item[0] for item in ranking[:M]]
+            # pos_choices = [ranking[:M]]
+          
+            # try:
+            #     pos_choices.remove(doc_id)
+            # except ValueError:
+            #     pos_choices = pos_choices[:-1]
+            pos_docs = ranking[:M]
+           
             # randomize selection of negative docs
-            neg_choices = [item[0] for item in ranking[-2*N:]]
+            # neg_choices = [item[0] for item in ranking[-2*N:]]
+            neg_choices = ranking[-2*N:]
             neg_docs = random.choices(neg_choices, k=N)
             
             ele_json = {
